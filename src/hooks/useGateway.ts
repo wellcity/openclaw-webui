@@ -18,25 +18,6 @@ function extractTextFromContent(content: any): string {
   return String(content).replace(/<\/?final>/gi, '').trim();
 }
 
-// 初始化使用者 workspace：檢查並建立目錄，設定路徑限制
-async function initUserWorkspace(client: GatewayClient, userId: string): Promise<void> {
-  const workspacePath = `/ws/${userId}`;
-  
-  // 發送初始化指令，讓 AI 幫忙建立目錄（帶路徑限制 prompt）
-  const fullSessionKey = `agent:main:web-user-${userId}`;
-  const initMessage = `請幫我初始化你的工作環境：
-1. 檢查目錄是否存在：${workspacePath}
-2. 如果不存在，建立這個目錄
-3. 以後所有檔案操作都只能在 ${workspacePath} 目錄下進行`;
-
-  try {
-    await client.sendMessage(initMessage, fullSessionKey);
-    console.log('[useGateway] Workspace init message sent for:', userId);
-  } catch (e) {
-    console.log('[useGateway] Workspace init failed (this is OK if exec requires approval):', e);
-  }
-}
-
 function parseHistoryMessages(history: any[]): ChatMessage[] {
   return (history || []).map((m: any) => ({
     id: m.id || `msg-${Date.now()}-${Math.random()}`,
@@ -157,9 +138,6 @@ export function useGateway(config: GatewayConfig): UseGatewayReturn {
       setConnected(true);
       setConnecting(false);
       setError(null); // 清除之前的錯誤
-
-      // 初始化使用者 workspace
-      await initUserWorkspace(client, config.userId);
 
       // 載入歷史訊息
       try {
