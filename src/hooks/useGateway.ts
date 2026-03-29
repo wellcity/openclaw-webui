@@ -3,6 +3,31 @@ import { GatewayClient } from '../services/gatewayClient';
 import type { GatewayConfig } from '../services/gatewayClient';
 import type { ChatMessage } from '../types/gateway';
 
+function extractTextFromContent(content: any): string {
+  if (typeof content === 'string') {
+    return content.replace(/<\/?final>/gi, '').trim();
+  }
+  if (Array.isArray(content)) {
+    return content.map(block => {
+      if (typeof block === 'string') return block;
+      if (block.type === 'text') return (block.text || '').replace(/<\/?final>/gi, '').trim();
+      if (block.type === 'thinking') return ''; // 過濾掉思考過程
+      return '';
+    }).filter(Boolean).join('');
+  }
+  return String(content).replace(/<\/?final>/gi, '').trim();
+}
+
+function parseHistoryMessages(history: any[]): ChatMessage[] {
+  return (history || []).map((m: any) => ({
+    id: m.id || `msg-${Date.now()}-${Math.random()}`,
+    role: m.role === 'user' ? 'user' : 'assistant',
+    content: extractTextFromContent(m.content),
+    timestamp: m.createdAt || Date.now(),
+    status: 'done' as const,
+  }));
+}
+
 export interface UseGatewayReturn {
   connected: boolean;
   connecting: boolean;
@@ -25,7 +50,25 @@ export function useGateway(config: GatewayConfig): UseGatewayReturn {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const clientRef = useRef<GatewayClient | null>(null);
-  const sessionKey = `web-user-${config.userId}`;
+  const sessionKey = `web-user-${config.userId}`; // 每個使用者有自己的 session
+  const configRef = useRef(config);
+  const [connectKey, setConnectKey] = useState(0);
+
+  // configRef 保持最新，並在 config 實質變化時觸發重連
+  useEffect(() => {
+    const hasValidConfig = !!(
+      config.gatewayUrl &&
+      config.token &&
+      config.userId
+    );
+    if (!hasValidConfig) return;
+
+    configRef.current = config;
+    clientRef.current?.disconnect();
+    setConnected(false);
+    setConnectKey(k => k + 1);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [config.gatewayUrl, config.token, config.userId]);
 
   const connect = useCallback(async () => {
     if (clientRef.current?.connected) return;
@@ -33,73 +76,46 @@ export function useGateway(config: GatewayConfig): UseGatewayReturn {
     setConnecting(true);
     setError(null);
 
-    const client = new GatewayClient(config);
+    const client = new GatewayClient(configRef.current);
     clientRef.current = client;
+
+    // 監聽 agent 事件（處理 life cycle）
+    client.on('agent', (msg: any) => {
+      const payload = msg.payload || msg;
+      if (payload.data?.phase === 'start') {
+        setLoading(true);
+      }
+      if (payload.data?.phase === 'end') {
+        setLoading(false);
+        // AI 回應結束，刷新歷史
+        setTimeout(async () => {
+          try {
+            const history = await client.getHistory(sessionKey);
+            const newMsgs = parseHistoryMessages(history.messages);
+            setMessages(newMsgs.slice(-20)); // 只保留最後 20 條
+          } catch (e) {
+            console.log('[useGateway] Failed to fetch history:', e);
+          }
+        }, 500); // 等待一下讓歷史寫入
+      }
+    });
 
     // 監聽 chat 事件
     client.on('chat', (msg: any) => {
       const payload = msg.payload || msg;
-
-      // 使用者訊息（自己的）
-      if (payload.role === 'user') {
-        setMessages((prev) => {
-          const existing = prev.find((m) => m.id === payload.id);
-          if (existing) {
-            return prev.map((m) => m.id === payload.id ? { ...m, ...payload } : m);
-          }
-          return [...prev, {
-            id: payload.id || `user-${Date.now()}`,
-            role: 'user',
-            content: payload.content || '',
-            timestamp: payload.createdAt || Date.now(),
-            status: 'done',
-          }];
-        });
-      }
-
-      // AI 回應（串流）
-      if (payload.role === 'assistant') {
-        setMessages((prev) => {
-          const lastMsg = prev[prev.length - 1];
-          if (lastMsg?.role === 'assistant' && !lastMsg.id) {
-            // 更新現有訊息
-            return prev.map((m, i) =>
-              i === prev.length - 1
-                ? { ...m, content: (m.content || '') + (payload.content || ''), id: payload.id || m.id }
-                : m
-            );
-          }
-          // 新增 AI 訊息
-          return [...prev, {
-            id: payload.id || `assistant-${Date.now()}`,
-            role: 'assistant',
-            content: payload.content || '',
-            timestamp: Date.now(),
-            status: payload.status === 'done' ? 'done' : 'sending',
-          }];
-        });
-      }
-
-      // 完成
-      if (payload.status === 'done' || payload.status === 'complete') {
+      if (payload.state === 'final') {
         setLoading(false);
-        setMessages((prev) =>
-          prev.map((m, i) =>
-            i === prev.length - 1 && m.role === 'assistant' ? { ...m, status: 'done' as const } : m
-          )
-        );
+        // 刷新歷史
+        setTimeout(async () => {
+          try {
+            const history = await client.getHistory(sessionKey);
+            const newMsgs = parseHistoryMessages(history.messages);
+            setMessages(newMsgs.slice(-20));
+          } catch (e) {
+            console.log('[useGateway] Failed to fetch history:', e);
+          }
+        }, 500);
       }
-
-      // 錯誤
-      if (payload.status === 'error' || payload.error) {
-        setLoading(false);
-        setError(payload.error || 'Unknown error');
-      }
-    });
-
-    // 連線狀態事件
-    client.on('system.presence', (msg: any) => {
-      console.log('[useGateway] Presence update:', msg.payload);
     });
 
     // 連線失敗
@@ -117,13 +133,7 @@ export function useGateway(config: GatewayConfig): UseGatewayReturn {
       try {
         const history = await client.getHistory(sessionKey);
         if (history?.messages && history.messages.length > 0) {
-          setMessages(history.messages.map((m: any) => ({
-            id: m.id,
-            role: m.role === 'user' ? 'user' : 'assistant',
-            content: m.content,
-            timestamp: m.createdAt,
-            status: 'done' as const,
-          })));
+          setMessages(parseHistoryMessages(history.messages).slice(-20));
         }
       } catch (e) {
         console.log('[useGateway] No history available');
@@ -133,15 +143,15 @@ export function useGateway(config: GatewayConfig): UseGatewayReturn {
       setConnecting(false);
       setConnected(false);
     }
-  }, [config, sessionKey]);
+  }, [sessionKey]);
 
   useEffect(() => {
+    if (!configRef.current.token) return;
     connect();
-
     return () => {
       clientRef.current?.disconnect();
     };
-  }, [connect]);
+  }, [connectKey]);
 
   const sendMessage = useCallback(async (content: string) => {
     if (!clientRef.current) {
@@ -149,7 +159,7 @@ export function useGateway(config: GatewayConfig): UseGatewayReturn {
       return;
     }
 
-    // 加入 user 訊息
+    // 加入 user 訊息到 UI
     const userMsg: ChatMessage = {
       id: `user-${Date.now()}`,
       role: 'user',
@@ -163,6 +173,7 @@ export function useGateway(config: GatewayConfig): UseGatewayReturn {
 
     try {
       await clientRef.current.sendMessage(content, sessionKey);
+      // 等待回應，chat.history 會在 agent 事件結束時被調用
     } catch (err: any) {
       setError(err.message);
       setLoading(false);
@@ -175,7 +186,16 @@ export function useGateway(config: GatewayConfig): UseGatewayReturn {
       return;
     }
 
+    const userMsg: ChatMessage = {
+      id: `user-${Date.now()}`,
+      role: 'user',
+      content,
+      timestamp: Date.now(),
+      status: 'sending',
+    };
+    setMessages((prev) => [...prev, userMsg]);
     setLoading(true);
+
     try {
       await clientRef.current.sendAdminCommand(content);
     } catch (err: any) {
@@ -201,8 +221,8 @@ export function useGateway(config: GatewayConfig): UseGatewayReturn {
   const reconnect = useCallback(async () => {
     clientRef.current?.disconnect();
     setConnected(false);
-    await connect();
-  }, [connect]);
+    setConnectKey(k => k + 1);
+  }, []);
 
   return {
     connected,

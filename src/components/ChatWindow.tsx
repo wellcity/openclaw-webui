@@ -11,8 +11,8 @@ export function ChatWindow({ messages, loading }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages]);
+    bottomRef.current?.scrollIntoView({ behavior: 'instant' });
+  }, [messages.length]); // 只在數量變化時滑動，不要每次 content 更新都滑
 
   if (messages.length === 0) {
     return (
@@ -29,13 +29,13 @@ export function ChatWindow({ messages, loading }: Props) {
       {messages.map((msg) => (
         <div
           key={msg.id}
-          className={`chat-message chat-message-${msg.role} ${msg.status === 'sending' ? 'sending' : ''}`}
+          className={`chat-message chat-message-${msg.role}`}
         >
           <div className="chat-message-avatar">
             {msg.role === 'user' ? '👤' : '🤖'}
           </div>
           <div className="chat-message-content">
-            <div className="chat-message-text">
+            <div className="chat-message-bubble">
               {msg.content || (msg.status === 'sending' ? '思考中...' : '')}
             </div>
             <div className="chat-message-time">
@@ -45,10 +45,10 @@ export function ChatWindow({ messages, loading }: Props) {
         </div>
       ))}
       {loading && (
-        <div className="chat-message chat-message-assistant loading">
+        <div className="chat-message chat-message-assistant">
           <div className="chat-message-avatar">🤖</div>
           <div className="chat-message-content">
-            <div className="chat-message-text typing">
+            <div className="chat-message-bubble typing">
               <span className="typing-dot">●</span>
               <span className="typing-dot">●</span>
               <span className="typing-dot">●</span>
