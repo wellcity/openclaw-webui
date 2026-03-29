@@ -166,6 +166,7 @@ export class GatewayClient {
       auth: { token: this.config.token },
       locale: navigator.language || 'zh-TW',
       userAgent: navigator.userAgent,
+      pathEnv: this.config.workspace || undefined,
 
     };
 
