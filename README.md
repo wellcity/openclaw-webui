@@ -5,10 +5,11 @@
 ## 功能特色
 
 - 🔌 直接連接 OpenClaw Gateway WebSocket（支援 v2 device signature）
-- 👤 多使用者支援（每個使用者有獨立 session `agent:main:web-user-<userId>`）
+- 👤 多使用者支援（每個使用者有獨立 session）
 - 💬 即時聊天介面（氣泡樣式、思考中動畫）
 - 🔄 自動重連
 - 🚫 跨 session 事件過濾（只顯示目前使用者的訊息）
+- 📁 **Workspace 隔離**（每個使用者的檔案操作限制在 `/ws/<userId>/` 目錄）
 - 📱 響應式設計，LibreChat 風格配色
 
 ## 架構
@@ -20,8 +21,11 @@
 │              │ ◄──────────────── │                 │
 └──────────────┘    chat events   └────────┬────────┘
                                              │
-                                   各使用者獨立 session
-                                   sessionKey: agent:main:web-user-<userId>
+                              使用者獨立 session
+                              sessionKey: agent:main:web-user-<userId>
+                              
+                              Workspace 隔離
+                              使用者只能操作 /ws/<userId>/ 目錄
 ```
 
 ## 技術棧
@@ -51,6 +55,21 @@ npm run build
 - **Gateway URL**: `ws://127.0.0.1:18789`（預設）
 - **Gateway Token**: 在 OpenClaw 設定中取得
 - **使用者 ID**: 用於區分不同使用者的 session（例：`bruce`、`alice`）
+
+## Workspace 隔離機制
+
+每個使用者的訊息都會自動加上 workspace 限制前綴：
+
+```
+[系統限制] 你的工作目錄是 /ws/<userId>/，所有檔案操作都只能在這個目錄下進行。
+
+<使用者輸入的內容>
+```
+
+**特點：**
+- AI 每次回應都會收到 workspace 限制
+- 使用者介面不顯示系統限制文字（乾淨的對話體驗）
+- 不需要手動建立目錄或設定 agent
 
 ## Gateway 設定需求
 
@@ -100,6 +119,13 @@ npm run build
 - 事件監聽器會過濾 `sessionKey`，只處理屬於目前使用者的訊息
 - 不同使用者的對話歷史不會互相干擾
 
+### Workspace 隔離
+
+- 每條訊息都附加 workspace 限制前綴
+- AI 被限制在 `/ws/<userId>/` 目錄下操作
+- 無需預先建立目錄或設定 agent
+- 目前為 Prompt 層面的限制，非嚴格的檔案系統隔離
+
 ### 訊息格式
 
 - 發送：`chat.send` 帶 `message` 參數
@@ -129,8 +155,7 @@ npm run build
 
 ## 已知限制
 
-- Workspace 隔離依賴 session key，不提供嚴格的檔案系統隔離
-- `pathEnv` 參數目前 Gateway 接受但不會自動建立目錄
+- Workspace 隔離為 Prompt 層面，非嚴格的檔案系統隔離
 - 需要 Gateway 設定 `dangerouslyDisableDeviceAuth: true` 才能使用完整功能
 
 ## License
