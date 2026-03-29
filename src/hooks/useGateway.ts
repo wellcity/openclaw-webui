@@ -50,7 +50,7 @@ export function useGateway(config: GatewayConfig): UseGatewayReturn {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const clientRef = useRef<GatewayClient | null>(null);
-  const sessionKey = `web-user-${config.userId}`; // 每個使用者有自己的 session
+  const sessionKey = `agent:main:web-user-${config.userId}`; // 每個使用者有自己的 session（gateway 會加前綴）
   const configRef = useRef(config);
   const [connectKey, setConnectKey] = useState(0);
 
@@ -90,16 +90,23 @@ export function useGateway(config: GatewayConfig): UseGatewayReturn {
       }
       if (payload.data?.phase === 'end') {
         setLoading(false);
-        // AI 回應結束，刷新歷史
-        setTimeout(async () => {
-          try {
-            const history = await client.getHistory(sessionKey);
-            const newMsgs = parseHistoryMessages(history.messages);
-            setMessages(newMsgs.slice(-20)); // 只保留最後 20 條
-          } catch (e) {
-            console.log('[useGateway] Failed to fetch history:', e);
+        // AI 回應結束，延遲後刷新歷史（給 API 時間寫入）
+        const refreshHistory = async () => {
+          for (let i = 0; i < 3; i++) {
+            try {
+              await new Promise(r => setTimeout(r, 800)); // 等待 800ms
+              const history = await client.getHistory(sessionKey);
+              const newMsgs = parseHistoryMessages(history.messages);
+              if (newMsgs.length > 0) {
+                setMessages(newMsgs.slice(-20));
+                return;
+              }
+            } catch (e) {
+              console.log('[useGateway] Retry fetch history:', i + 1);
+            }
           }
-        }, 500); // 等待一下讓歷史寫入
+        };
+        refreshHistory();
       }
     });
 
@@ -111,16 +118,6 @@ export function useGateway(config: GatewayConfig): UseGatewayReturn {
       
       if (payload.state === 'final') {
         setLoading(false);
-        // 刷新歷史
-        setTimeout(async () => {
-          try {
-            const history = await client.getHistory(sessionKey);
-            const newMsgs = parseHistoryMessages(history.messages);
-            setMessages(newMsgs.slice(-20));
-          } catch (e) {
-            console.log('[useGateway] Failed to fetch history:', e);
-          }
-        }, 500);
       }
     });
 
