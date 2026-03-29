@@ -169,7 +169,13 @@ export function useGateway(config: GatewayConfig): UseGatewayReturn {
       return;
     }
 
-    // 加入 user 訊息到 UI
+    const userId = configRef.current.userId;
+    const workspacePath = `/ws/${userId}`;
+    
+    // 加上 workspace 限制的 prefix
+    const restrictedContent = `[系統限制] 你的工作目錄是 ${workspacePath}，所有檔案操作都只能在這個目錄下進行。\n\n${content}`;
+
+    // 加入 user 訊息到 UI（顯示原始內容，不顯示 restriction prefix）
     const userMsg: ChatMessage = {
       id: `user-${Date.now()}`,
       role: 'user',
@@ -182,7 +188,8 @@ export function useGateway(config: GatewayConfig): UseGatewayReturn {
     setError(null);
 
     try {
-      await clientRef.current.sendMessage(content, sessionKeyRef.current);
+      // 發送帶有 workspace 限制的訊息
+      await clientRef.current.sendMessage(restrictedContent, sessionKeyRef.current);
       // 等待回應，chat.history 會在 agent 事件結束時被調用
     } catch (err: any) {
       setError(err.message);
