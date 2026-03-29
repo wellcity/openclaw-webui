@@ -82,6 +82,9 @@ export function useGateway(config: GatewayConfig): UseGatewayReturn {
     // 監聽 agent 事件（處理 life cycle）
     client.on('agent', (msg: any) => {
       const payload = msg.payload || msg;
+      // 只處理屬於目前 session 的事件
+      if (payload.sessionKey !== sessionKey) return;
+      
       if (payload.data?.phase === 'start') {
         setLoading(true);
       }
@@ -103,6 +106,9 @@ export function useGateway(config: GatewayConfig): UseGatewayReturn {
     // 監聽 chat 事件
     client.on('chat', (msg: any) => {
       const payload = msg.payload || msg;
+      // 只處理屬於目前 session 的事件
+      if (payload.sessionKey !== sessionKey) return;
+      
       if (payload.state === 'final') {
         setLoading(false);
         // 刷新歷史
@@ -128,6 +134,7 @@ export function useGateway(config: GatewayConfig): UseGatewayReturn {
       await client.connect();
       setConnected(true);
       setConnecting(false);
+      setError(null); // 清除之前的錯誤
 
       // 載入歷史訊息
       try {

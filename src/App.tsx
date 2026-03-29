@@ -1,9 +1,7 @@
 import { useState } from 'react';
 import { ChatWindow } from './components/ChatWindow';
 import { ChatInput } from './components/ChatInput';
-import { StatusBar } from './components/StatusBar';
 import { LoginForm } from './components/LoginForm';
-import { AdminPanel } from './components/AdminPanel';
 import { useGateway } from './hooks/useGateway';
 import './App.css';
 
@@ -27,7 +25,6 @@ function App() {
     error,
     sessionKey,
     sendMessage,
-    sendAdminCommand,
     abortChat,
     clearMessages,
     reconnect,
@@ -61,8 +58,11 @@ function App() {
   return (
     <div className="app">
       <header className="app-header">
-        <h2>🤖 OpenClaw WebUI</h2>
-        <div className="header-user">
+        <div className="header-left">
+          <h2>🤖 OpenClaw</h2>
+        </div>
+        <div className="header-right">
+          <div className={`connection-dot ${connected ? 'connected' : connecting ? 'connecting' : 'disconnected'}`} />
           <span className="user-id">{config.userId}</span>
           <button className="logout-btn" onClick={handleLogout}>
             登出
@@ -70,16 +70,8 @@ function App() {
         </div>
       </header>
 
-      <StatusBar
-        connected={connected}
-        connecting={connecting}
-        sessionKey={sessionKey}
-        onReconnect={reconnect}
-        onClear={clearMessages}
-      />
-
       {error && (
-        <div className="error-banner" onClick={() => {}}>
+        <div className="error-banner">
           ⚠️ {error}
         </div>
       )}
@@ -87,8 +79,6 @@ function App() {
       <main className="app-main">
         <ChatWindow messages={messages} loading={loading} />
       </main>
-
-      <AdminPanel onSendCommand={sendAdminCommand} disabled={!connected || loading} />
 
       <footer className="app-footer">
         <ChatInput
