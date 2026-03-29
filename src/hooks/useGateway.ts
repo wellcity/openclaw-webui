@@ -69,9 +69,14 @@ export function useGateway(config: GatewayConfig): UseGatewayReturn {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const clientRef = useRef<GatewayClient | null>(null);
-  const sessionKey = `agent:main:web-user-${config.userId}`; // 每個使用者有自己的 session（gateway 會加前綴）
+  const sessionKeyRef = useRef(`agent:main:web-user-${config.userId}`);
   const configRef = useRef(config);
   const [connectKey, setConnectKey] = useState(0);
+
+  // sessionKeyRef 永遠保持最新值
+  useEffect(() => {
+    sessionKeyRef.current = `agent:main:web-user-${config.userId}`;
+  }, [config.userId]);
 
   // configRef 保持最新，並在 config 實質變化時觸發重連
   useEffect(() => {
@@ -85,6 +90,7 @@ export function useGateway(config: GatewayConfig): UseGatewayReturn {
     configRef.current = config;
     clientRef.current?.disconnect();
     setConnected(false);
+    setMessages([]); // 清空訊息，因為換了 session
     setConnectKey(k => k + 1);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [config.gatewayUrl, config.token, config.userId]);
@@ -102,7 +108,7 @@ export function useGateway(config: GatewayConfig): UseGatewayReturn {
     client.on('agent', (msg: any) => {
       const payload = msg.payload || msg;
       // 只處理屬於目前 session 的事件
-      if (payload.sessionKey !== sessionKey) return;
+      if (payload.sessionKey !== sessionKeyRef.current) return;
       
       if (payload.data?.phase === 'start') {
         setLoading(true);
@@ -114,7 +120,7 @@ export function useGateway(config: GatewayConfig): UseGatewayReturn {
           for (let i = 0; i < 3; i++) {
             try {
               await new Promise(r => setTimeout(r, 800)); // 等待 800ms
-              const history = await client.getHistory(sessionKey);
+              const history = await client.getHistory(sessionKeyRef.current);
               const newMsgs = parseHistoryMessages(history.messages);
               if (newMsgs.length > 0) {
                 setMessages(newMsgs.slice(-20));
@@ -133,7 +139,7 @@ export function useGateway(config: GatewayConfig): UseGatewayReturn {
     client.on('chat', (msg: any) => {
       const payload = msg.payload || msg;
       // 只處理屬於目前 session 的事件
-      if (payload.sessionKey !== sessionKey) return;
+      if (payload.sessionKey !== sessionKeyRef.current) return;
       
       if (payload.state === 'final') {
         setLoading(false);
@@ -157,7 +163,7 @@ export function useGateway(config: GatewayConfig): UseGatewayReturn {
 
       // 載入歷史訊息
       try {
-        const history = await client.getHistory(sessionKey);
+        const history = await client.getHistory(sessionKeyRef.current);
         if (history?.messages && history.messages.length > 0) {
           setMessages(parseHistoryMessages(history.messages).slice(-20));
         }
@@ -169,7 +175,7 @@ export function useGateway(config: GatewayConfig): UseGatewayReturn {
       setConnecting(false);
       setConnected(false);
     }
-  }, [sessionKey]);
+  }, [config.userId]);
 
   useEffect(() => {
     if (!configRef.current.token) return;
@@ -198,13 +204,13 @@ export function useGateway(config: GatewayConfig): UseGatewayReturn {
     setError(null);
 
     try {
-      await clientRef.current.sendMessage(content, sessionKey);
+      await clientRef.current.sendMessage(content, sessionKeyRef.current);
       // 等待回應，chat.history 會在 agent 事件結束時被調用
     } catch (err: any) {
       setError(err.message);
       setLoading(false);
     }
-  }, [sessionKey]);
+  }, [config.userId]);
 
   const sendAdminCommand = useCallback(async (content: string) => {
     if (!clientRef.current) {
@@ -233,12 +239,12 @@ export function useGateway(config: GatewayConfig): UseGatewayReturn {
   const abortChat = useCallback(async () => {
     if (!clientRef.current) return;
     try {
-      await clientRef.current.abortChat(sessionKey);
+      await clientRef.current.abortChat(sessionKeyRef.current);
       setLoading(false);
     } catch (err) {
       console.error('[useGateway] Abort failed:', err);
     }
-  }, [sessionKey]);
+  }, [config.userId]);
 
   const clearMessages = useCallback(() => {
     setMessages([]);
@@ -257,7 +263,7 @@ export function useGateway(config: GatewayConfig): UseGatewayReturn {
     loading,
     error,
     client: clientRef.current,
-    sessionKey,
+    sessionKey: sessionKeyRef.current,
     sendMessage,
     sendAdminCommand,
     abortChat,
